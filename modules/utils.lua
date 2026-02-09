@@ -1,5 +1,5 @@
 -- modules/utils.lua
--- version 2.0.0
+-- version 2.0.1
 -- Changed: Unified menu system with better styling and pagination
 
 local utils = {}
@@ -142,8 +142,8 @@ function utils.menu(options)
     
     local selected = 1
     local termWidth, termHeight = term.getSize()
-    local headerLines = 3  -- title + separator + blank
-    local footerLines = 3  -- blank + separator + instructions
+    local headerLines = 1  -- title only
+    local footerLines = 2  -- blank + separator
     local instructionLines = allowQuit and 2 or 1
     local availableLines = termHeight - headerLines - footerLines - instructionLines
     local firstVisible = 1
@@ -158,11 +158,6 @@ function utils.menu(options)
         term.clearLine()
         term.write(title)
         term.setBackgroundColor(colors.black)
-        
-        -- Separator
-        term.setCursorPos(1, 2)
-        term.setTextColor(colors.gray)
-        term.write(string.rep("-", termWidth))
         
         -- Calculate visible range
         if selected < firstVisible then
@@ -208,12 +203,12 @@ function utils.menu(options)
         end
         
         -- Footer separator
-        term.setCursorPos(1, termHeight - instructionLines - 1)
+        term.setCursorPos(1, termHeight - instructionLines)
         term.setTextColor(colors.gray)
         term.write(string.rep("-", termWidth))
         
         -- Instructions
-        term.setCursorPos(1, termHeight - instructionLines)
+        term.setCursorPos(1, termHeight - instructionLines + 1)
         term.setTextColor(colors.lightGray)
         term.write(message)
         
