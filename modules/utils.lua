@@ -143,7 +143,7 @@ function utils.menu(options)
     local selected = 1
     local termWidth, termHeight = term.getSize()
     local headerLines = 1  -- title only
-    local footerLines = 2  -- blank + separator
+    local footerLines = 1  -- separator
     local instructionLines = allowQuit and 2 or 1
     local availableLines = termHeight - headerLines - footerLines - instructionLines
     local firstVisible = 1
