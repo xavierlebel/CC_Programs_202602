@@ -1,0 +1,15 @@
+# CC Programs List
+# One URL per line, comments start with #
+# Both raw URLs and blob URLs are supported
+
+# Examples:
+# https://github.com/xavierlebel/CC_Programs/blob/main/allmethods.lua
+# https://raw.githubusercontent.com/xavierlebel/CC_Programs/main/exampleprogram.lua
+# https://github.com/xavierlebel/CC_Programs/blob/main/anotherprogram.lua
+
+# Utilities
+https://github.com/xavierlebel/CC_Programs_202602/blob/main/modules/utils.lua
+
+# Programs
+https://github.com/xavierlebel/CC_Programs_202602/blob/main/table_examples.lua
+https://github.com/xavierlebel/CC_Programs_202602/blob/main/menu_examples.lua
