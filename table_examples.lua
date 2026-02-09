@@ -1,4 +1,4 @@
--- table.lua
+-- table_examples.lua
 
 local utils = require('modules/utils')
 
