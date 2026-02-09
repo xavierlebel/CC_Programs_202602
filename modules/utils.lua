@@ -1,6 +1,6 @@
 -- modules/utils.lua
--- version 2.0.1
--- Changed: Unified menu system with better styling and pagination
+-- version 3.0.0
+-- Enhanced: Added immediate execution, monitor support, touch/mouse capabilities
 
 local utils = {}
 
@@ -124,7 +124,7 @@ function utils.renderTable(options)
 end
 
 ----------------------------------------------------------------------------
--- UNIFIED MENU SYSTEM
+-- UNIFIED MENU SYSTEM (ENHANCED)
 ----------------------------------------------------------------------------
 
 -- Main menu function with all features
@@ -140,24 +140,39 @@ function utils.menu(options)
     local numbered = options.numbered ~= false    -- default true
     local returnIndex = options.returnIndex or false
     
+    -- NEW OPTIONS
+    local display = options.display or term  -- Support for monitors
+    local immediateExecute = options.immediateExecute or false  -- Execute on select (no enter)
+    local enableTouch = options.enableTouch ~= false  -- default true for monitors
+    local enableMouse = options.enableMouse ~= false  -- default true for terminals
+    
+    -- Determine if we're using a monitor or terminal
+    local isMonitor = display ~= term
+    local monitorSide = isMonitor and peripheral.getName(display) or nil
+    
     local selected = 1
-    local termWidth, termHeight = term.getSize()
+    local termWidth, termHeight = display.getSize()
     local headerLines = 1  -- title only
     local footerLines = 1  -- separator
     local instructionLines = allowQuit and 2 or 1
     local availableLines = termHeight - headerLines - footerLines - instructionLines
     local firstVisible = 1
     
+    -- Store clickable regions for touch/mouse support
+    local clickableRegions = {}
+    
     local function drawMenu()
-        term.clear()
-        term.setCursorPos(1, 1)
+        display.setBackgroundColor(colors.black)
+        display.clear()
+        display.setCursorPos(1, 1)
+        clickableRegions = {}
         
         -- Title bar
-        term.setBackgroundColor(titleColor)
-        term.setTextColor(colors.white)
-        term.clearLine()
-        term.write(title)
-        term.setBackgroundColor(colors.black)
+        display.setBackgroundColor(titleColor)
+        display.setTextColor(colors.white)
+        display.clearLine()
+        display.write(title)
+        display.setBackgroundColor(colors.black)
         
         -- Calculate visible range
         if selected < firstVisible then
@@ -169,7 +184,7 @@ function utils.menu(options)
         -- Draw menu items
         local currentLine = headerLines + 1
         for i = firstVisible, math.min(firstVisible + availableLines - 1, #items) do
-            term.setCursorPos(1, currentLine)
+            display.setCursorPos(1, currentLine)
             
             local item = items[i]
             local displayText = ""
@@ -186,80 +201,169 @@ function utils.menu(options)
                 displayText = i .. ". " .. displayText
             end
             
+            -- Store clickable region
+            table.insert(clickableRegions, {
+                index = i,
+                y = currentLine,
+                x = 1,
+                width = termWidth,
+                height = 1
+            })
+            
             -- Highlight selected item
             if i == selected then
-                term.setBackgroundColor(selectedColor)
-                term.setTextColor(selectedTextColor)
-                term.clearLine()
-                term.write("> " .. displayText)
-                term.setBackgroundColor(colors.black)
-                term.setTextColor(colors.white)
+                display.setBackgroundColor(selectedColor)
+                display.setTextColor(selectedTextColor)
+                display.clearLine()
+                display.write("> " .. displayText)
+                display.setBackgroundColor(colors.black)
+                display.setTextColor(colors.white)
             else
-                term.setTextColor(colors.white)
-                term.write("  " .. displayText)
+                display.setTextColor(colors.white)
+                display.write("  " .. displayText)
             end
             
             currentLine = currentLine + 1
         end
         
         -- Footer separator
-        term.setCursorPos(1, termHeight - instructionLines)
-        term.setTextColor(colors.gray)
-        term.write(string.rep("-", termWidth))
+        display.setCursorPos(1, termHeight - instructionLines)
+        display.setTextColor(colors.gray)
+        display.write(string.rep("-", termWidth))
         
         -- Instructions
-        term.setCursorPos(1, termHeight - instructionLines + 1)
-        term.setTextColor(colors.lightGray)
-        term.write(message)
+        display.setCursorPos(1, termHeight - instructionLines + 1)
+        display.setTextColor(colors.lightGray)
+        local inputMethod = ""
+        if isMonitor and enableTouch then
+            inputMethod = "Touch to select"
+        elseif not isMonitor and enableMouse then
+            inputMethod = "Click or arrow keys"
+        else
+            inputMethod = message
+        end
+        display.write(inputMethod)
         
         if allowQuit then
-            term.setCursorPos(1, termHeight)
-            term.write("Press 'q' to quit")
+            display.setCursorPos(1, termHeight)
+            display.write("Press 'q' to quit")
         end
         
-        term.setTextColor(colors.white)
-        term.setBackgroundColor(colors.black)
+        display.setTextColor(colors.white)
+        display.setBackgroundColor(colors.black)
+    end
+    
+    local function handleSelection()
+        if immediateExecute then
+            -- Execute immediately without clearing screen
+            local item = items[selected]
+            if type(item) == "table" then
+                if item.onSelect then
+                    item.onSelect(item, selected)
+                    drawMenu()  -- Redraw after execution
+                    return "continue"
+                elseif item.action then
+                    item.action(item, selected)
+                    drawMenu()  -- Redraw after execution
+                    return "continue"
+                end
+            end
+        end
+        
+        -- Normal selection return
+        display.clear()
+        display.setCursorPos(1, 1)
+        
+        if returnIndex then
+            return "return", selected
+        else
+            return "return", items[selected], selected
+        end
+    end
+    
+    local function processClick(x, y)
+        -- Check if click is on a menu item
+        for _, region in ipairs(clickableRegions) do
+            if y == region.y and x >= region.x and x < region.x + region.width then
+                selected = region.index
+                drawMenu()
+                
+                -- If immediate execute is enabled, execute now
+                if immediateExecute then
+                    return handleSelection()
+                end
+                
+                return "selected"
+            end
+        end
+        return "continue"
     end
     
     drawMenu()
     
-    -- Event loop
+    -- Event loop with touch/mouse support
     while true do
-        local event, key = os.pullEvent("key")
+        local eventData = {os.pullEvent()}
+        local event = eventData[1]
         
-        if key == keys.up then
-            selected = selected > 1 and selected - 1 or #items
-            drawMenu()
+        -- Keyboard navigation
+        if event == "key" then
+            local key = eventData[2]
             
-        elseif key == keys.down then
-            selected = selected < #items and selected + 1 or 1
-            drawMenu()
-            
-        elseif key == keys.enter then
-            term.clear()
-            term.setCursorPos(1, 1)
-            
-            if returnIndex then
-                return selected
-            else
-                return items[selected], selected
+            if key == keys.up then
+                selected = selected > 1 and selected - 1 or #items
+                drawMenu()
+                
+            elseif key == keys.down then
+                selected = selected < #items and selected + 1 or 1
+                drawMenu()
+                
+            elseif key == keys.enter then
+                local status, result1, result2 = handleSelection()
+                if status == "return" then
+                    return result1, result2
+                end
+                
+            elseif allowQuit and key == keys.q then
+                display.clear()
+                display.setCursorPos(1, 1)
+                return nil, nil
             end
+        
+        -- Monitor touch support
+        elseif isMonitor and enableTouch and event == "monitor_touch" then
+            local side = eventData[2]
+            local x = eventData[3]
+            local y = eventData[4]
             
-        elseif allowQuit and key == keys.q then
-            term.clear()
-            term.setCursorPos(1, 1)
-            return nil, nil
+            if side == monitorSide then
+                local status, result1, result2 = processClick(x, y)
+                if status == "return" then
+                    return result1, result2
+                end
+            end
+        
+        -- Terminal mouse click support
+        elseif not isMonitor and enableMouse and event == "mouse_click" then
+            local button = eventData[2]
+            local x = eventData[3]
+            local y = eventData[4]
+            
+            local status, result1, result2 = processClick(x, y)
+            if status == "return" then
+                return result1, result2
+            end
         end
     end
 end
 
 -- Quick simple menu for string arrays
-function utils.quickMenu(title, items)
-    return utils.menu({
-        title = title,
-        items = items,
-        returnIndex = true
-    })
+function utils.quickMenu(title, items, options)
+    options = options or {}
+    options.title = title
+    options.items = items
+    options.returnIndex = true
+    return utils.menu(options)
 end
 
 -- Menu with automatic action execution
@@ -274,7 +378,11 @@ function utils.actionMenu(options)
             message = options.message,
             titleColor = options.titleColor,
             selectedColor = options.selectedColor,
-            allowQuit = options.allowQuit
+            allowQuit = options.allowQuit,
+            display = options.display,
+            immediateExecute = options.immediateExecute,
+            enableTouch = options.enableTouch,
+            enableMouse = options.enableMouse
         })
         
         if not selected then
@@ -282,38 +390,45 @@ function utils.actionMenu(options)
             break
         end
         
-        -- Handle actions
-        if type(selected) == "table" then
-            if selected.submenu then
-                -- Recursive submenu
-                utils.actionMenu({
-                    title = selected.submenu.title or selected.name or "Submenu",
-                    items = selected.submenu.items or selected.submenu,
-                    allowQuit = true
-                })
-            elseif selected.action then
-                -- Execute action
-                term.clear()
-                term.setCursorPos(1, 1)
-                local result = selected.action()
-                
-                -- If action returns false, exit menu
-                if result == false then
+        -- Handle actions (only if not immediate execute, since that's handled in menu())
+        if not options.immediateExecute then
+            if type(selected) == "table" then
+                if selected.submenu then
+                    -- Recursive submenu
+                    utils.actionMenu({
+                        title = selected.submenu.title or selected.name or "Submenu",
+                        items = selected.submenu.items or selected.submenu,
+                        allowQuit = true,
+                        display = options.display,
+                        immediateExecute = options.immediateExecute,
+                        enableTouch = options.enableTouch,
+                        enableMouse = options.enableMouse
+                    })
+                elseif selected.action then
+                    -- Execute action
+                    local disp = options.display or term
+                    disp.clear()
+                    disp.setCursorPos(1, 1)
+                    local result = selected.action()
+                    
+                    -- If action returns false, exit menu
+                    if result == false then
+                        break
+                    end
+                    
+                    -- Wait for user to continue
+                    if options.waitAfterAction ~= false then
+                        print("\nPress any key to continue...")
+                        os.pullEvent("key")
+                    end
+                else
+                    -- No action defined, just return the selection
                     break
                 end
-                
-                -- Wait for user to continue
-                if options.waitAfterAction ~= false then
-                    print("\nPress any key to continue...")
-                    os.pullEvent("key")
-                end
             else
-                -- No action defined, just return the selection
+                -- Simple string selection, exit menu
                 break
             end
-        else
-            -- Simple string selection, exit menu
-            break
         end
     end
 end
