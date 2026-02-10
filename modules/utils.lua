@@ -1,11 +1,11 @@
 -- modules/utils.lua
--- version 3.0.0
--- Enhanced: Added immediate execution, monitor support, touch/mouse capabilities
+-- version 4.0.0
+-- Refactored: Improved modularity, fixed sorting, cleaner structure
 
 local utils = {}
 
 ----------------------------------------------------------------------------
--- UTILITY
+-- UTILITY FUNCTIONS
 ----------------------------------------------------------------------------
 function utils.writeTableToFile(data)
     local file = fs.open("output.log", "w")
@@ -23,11 +23,187 @@ function utils.wrapPeripheral(peripheralType)
         end
     end
     print(peripheralType .. " not found")
-    error("", 0)    
+    error("", 0)
 end
 
 ----------------------------------------------------------------------------
--- TABLE RENDERING
+-- TABLE RENDERING - CORE HELPERS
+----------------------------------------------------------------------------
+local TableRenderer = {}
+
+-- Extract value from cell (handles color tables)
+function TableRenderer.extractValue(cell)
+    if type(cell) == "table" and cell.value ~= nil then
+        return cell.value
+    end
+    return cell or ""
+end
+
+-- Auto-detect headers from data
+function TableRenderer.detectHeaders(data)
+    if not data[1] then return {} end
+    
+    local headers = {}
+    for k in pairs(data[1]) do
+        table.insert(headers, k)
+    end
+    table.sort(headers)
+    return headers
+end
+
+-- Calculate column widths with smart truncation
+function TableRenderer.calculateColumnWidths(headers, data, maxWidth, spacing)
+    local colWidths = {}
+    local totalSpacing = (#headers - 1) * spacing
+    local maxColWidth = math.floor((maxWidth - totalSpacing) / #headers)
+    
+    for _, h in ipairs(headers) do
+        colWidths[h] = #h
+        for _, row in ipairs(data) do
+            local value = TableRenderer.extractValue(row[h])
+            colWidths[h] = math.max(colWidths[h], #tostring(value))
+        end
+        colWidths[h] = math.min(colWidths[h], maxColWidth)
+    end
+    
+    return colWidths
+end
+
+-- Sort data by column
+function TableRenderer.sortData(data, column, ascending)
+    local firstValue = TableRenderer.extractValue(data[1][column])
+    local isNumeric = type(firstValue) == "number"
+    
+    table.sort(data, function(a, b)
+        local aVal = TableRenderer.extractValue(a[column])
+        local bVal = TableRenderer.extractValue(b[column])
+        
+        if isNumeric then
+            return ascending and (aVal < bVal) or (aVal > bVal)
+        else
+            return ascending and (tostring(aVal) < tostring(bVal)) or (tostring(aVal) > tostring(bVal))
+        end
+    end)
+end
+
+-- Render column headers
+function TableRenderer.renderHeaders(disp, headers, colWidths, x, y, spacing, sortColumn, enableSort, clickableHeaders)
+    local cx = x
+    
+    for _, h in ipairs(headers) do
+        disp.setCursorPos(cx, y)
+        
+        -- Highlight sorted column
+        if sortColumn == h then
+            disp.setTextColor(colors.yellow)
+        else
+            disp.setTextColor(colors.lightGray)
+        end
+        
+        local padded = h .. string.rep(" ", math.max(0, colWidths[h] - #h))
+        disp.write(string.sub(padded, 1, colWidths[h]))
+        
+        -- Store clickable region for header
+        if enableSort then
+            table.insert(clickableHeaders, {
+                header = h,
+                x = cx,
+                y = y,
+                width = colWidths[h],
+                height = 1
+            })
+        end
+        
+        cx = cx + colWidths[h] + spacing
+    end
+    
+    disp.setTextColor(colors.white)
+end
+
+-- Render table rows
+function TableRenderer.renderRows(disp, headers, data, colWidths, x, y, spacing, startIdx, endIdx, enableRowClick, clickableRows, maxWidth)
+    for i = startIdx, endIdx do
+        local cx = x
+        local cy = y + (i - startIdx) + 1
+        
+        -- Store clickable region for entire row
+        if enableRowClick then
+            table.insert(clickableRows, {
+                rowIndex = i,
+                rowData = data[i],
+                x = x,
+                y = cy,
+                width = maxWidth,
+                height = 1
+            })
+        end
+        
+        for _, h in ipairs(headers) do
+            disp.setCursorPos(cx, cy)
+            local cell = data[i][h]
+            
+            if type(cell) == "table" and cell.value then
+                disp.setTextColor(colors[cell.color] or colors.white)
+                disp.write(string.sub(tostring(cell.value), 1, colWidths[h]))
+            else
+                disp.setTextColor(colors.white)
+                disp.write(string.sub(tostring(cell or ""), 1, colWidths[h]))
+            end
+            cx = cx + colWidths[h] + spacing
+        end
+    end
+    
+    disp.setTextColor(colors.white)
+end
+
+----------------------------------------------------------------------------
+-- TABLE RENDERING - CLICK HANDLERS
+----------------------------------------------------------------------------
+local ClickHandler = {}
+
+-- Check if click is within header regions and handle sorting
+function ClickHandler.processHeaderClick(clickX, clickY, clickableHeaders, sortColumn, sortAscending, data, onSort, onHeaderClick)
+    for _, region in ipairs(clickableHeaders) do
+        if clickX >= region.x and clickX < region.x + region.width and clickY == region.y then
+            -- Toggle sort or change column
+            local newSortColumn = region.header
+            local newSortAscending = true
+            
+            if sortColumn == region.header then
+                newSortAscending = not sortAscending
+            end
+            
+            -- Sort the data
+            TableRenderer.sortData(data, newSortColumn, newSortAscending)
+            
+            -- Call custom callback if provided
+            if onHeaderClick then
+                onHeaderClick(region.header, data, newSortAscending)
+            end
+            
+            return true, newSortColumn, newSortAscending
+        end
+    end
+    
+    return false, sortColumn, sortAscending
+end
+
+-- Check if click is within row regions
+function ClickHandler.processRowClick(clickX, clickY, clickableRows, onRowClick)
+    for _, region in ipairs(clickableRows) do
+        if clickX >= region.x and clickX < region.x + region.width and clickY == region.y then
+            if onRowClick then
+                onRowClick(region.rowData, region.rowIndex)
+            end
+            return true
+        end
+    end
+    
+    return false
+end
+
+----------------------------------------------------------------------------
+-- TABLE RENDERING - MAIN FUNCTION
 ----------------------------------------------------------------------------
 function utils.renderTable(options)
     local disp = options.display or term
@@ -36,273 +212,307 @@ function utils.renderTable(options)
     local y = options.y or 1
     local maxWidth = options.maxWidth or disp.getSize()
     local maxHeight = options.maxHeight
-    local headers = options.headers -- if nil, auto-detect
+    local headers = options.headers or TableRenderer.detectHeaders(data)
     local interactive = options.interactive or false
-    local spacing = options.spacing or 1  -- Configurable spacing between columns
+    local spacing = options.spacing or 1
+    local autoClear = options.autoClear ~= false
     
-    -- Auto-detect headers if needed
-    if not headers and data[1] then
-        headers = {}
-        for k in pairs(data[1]) do
-            table.insert(headers, k)
-        end
-        table.sort(headers)
+    -- Interactive options
+    local enableSort = options.enableSort or false
+    local enableRowClick = options.enableRowClick or false
+    local onRowClick = options.onRowClick
+    local onHeaderClick = options.onHeaderClick
+    
+    -- Device detection
+    local isMonitor = disp ~= term
+    local monitorSide = isMonitor and peripheral.getName(disp) or nil
+    
+    -- Sort state
+    local sortColumn = nil
+    local sortAscending = true
+    
+    -- Auto-clear display
+    if autoClear then
+        disp.clear()
     end
     
-    -- Calculate column widths with smart truncation
-    local colWidths = {}
-    local totalSpacing = (#headers - 1) * spacing  -- Total space used by gaps
-    local maxColWidth = math.floor((maxWidth - totalSpacing) / #headers)
+    -- Calculate column widths
+    local colWidths = TableRenderer.calculateColumnWidths(headers, data, maxWidth, spacing)
     
-    for _, h in ipairs(headers) do
-        colWidths[h] = #h
-        for _, row in ipairs(data) do
-            local value = type(row[h]) == "table" and row[h].value or row[h]
-            colWidths[h] = math.max(colWidths[h], #tostring(value or ""))
-        end
-        colWidths[h] = math.min(colWidths[h], maxColWidth)
-    end
+    -- Clickable regions
+    local clickableHeaders = {}
+    local clickableRows = {}
     
     -- Render function
-    local function render(page, startRow)
-        page = page or 1
-        startRow = startRow or 0
+    local function render()
+        clickableHeaders = {}
+        clickableRows = {}
         
-        local rowsPerPage = maxHeight or (#data - startRow)
-        local startIdx = startRow + 1
-        local endIdx = math.min(startIdx + rowsPerPage - 1, #data)
+        local rowsPerPage = maxHeight or #data
+        local startIdx = 1
+        local endIdx = math.min(rowsPerPage, #data)
         
         -- Draw headers
-        local cx = x
-        for _, h in ipairs(headers) do
-            disp.setCursorPos(cx, y)
-            disp.setTextColor(colors.lightGray)
-            disp.write(string.sub(h, 1, colWidths[h]))
-            cx = cx + colWidths[h] + spacing
-        end
+        TableRenderer.renderHeaders(disp, headers, colWidths, x, y, spacing, sortColumn, enableSort, clickableHeaders)
         
         -- Draw rows
-        for i = startIdx, endIdx do
-            cx = x
-            local cy = y + (i - startIdx) + 1
-            for _, h in ipairs(headers) do
-                disp.setCursorPos(cx, cy)
-                local cell = data[i][h]
-                
-                if type(cell) == "table" and cell.value then
-                    disp.setTextColor(colors[cell.color] or colors.white)
-                    disp.write(string.sub(tostring(cell.value), 1, colWidths[h]))
-                else
-                    disp.setTextColor(colors.white)
-                    disp.write(string.sub(tostring(cell or ""), 1, colWidths[h]))
-                end
-                cx = cx + colWidths[h] + spacing
+        TableRenderer.renderRows(disp, headers, data, colWidths, x, y, spacing, startIdx, endIdx, enableRowClick, clickableRows, maxWidth)
+    end
+    
+    -- Handle click events
+    local function processClick(clickX, clickY)
+        -- Check header clicks
+        if enableSort then
+            local handled, newSortColumn, newSortAscending = ClickHandler.processHeaderClick(
+                clickX, clickY, clickableHeaders, sortColumn, sortAscending, data, nil, onHeaderClick
+            )
+            
+            if handled then
+                sortColumn = newSortColumn
+                sortAscending = newSortAscending
+                render()
+                return true
             end
         end
         
-        disp.setTextColor(colors.white)
+        -- Check row clicks
+        if enableRowClick then
+            local handled = ClickHandler.processRowClick(clickX, clickY, clickableRows, onRowClick)
+            if handled then
+                render()
+                return true
+            end
+        end
+        
+        return false
     end
     
-    render(1, 0)
+    -- Initial render
+    render()
     
-    -- Optional interactivity
-    if interactive then
-        local page = 1
-        local totalPages = math.ceil(#data / (maxHeight or 10))
-        while true do
-            local _, key = os.pullEvent("key")
-            if key == keys.q or key == keys.enter then break
-            elseif key == keys.right and page < totalPages then
-                page = page + 1
-                render(page, (page-1) * maxHeight)
-            elseif key == keys.left and page > 1 then
-                page = page - 1
-                render(page, (page-1) * maxHeight)
+    -- Interactive mode
+    if not interactive then
+        return
+    end
+    
+    -- Event handling loop
+    local enableTouch = options.enableTouch ~= false
+    local enableMouse = options.enableMouse ~= false
+    
+    while true do
+        local eventData = {os.pullEvent()}
+        local event = eventData[1]
+        
+        -- Monitor touch
+        if isMonitor and enableTouch and event == "monitor_touch" then
+            local side = eventData[2]
+            local touchX = eventData[3]
+            local touchY = eventData[4]
+            
+            if side == monitorSide then
+                processClick(touchX, touchY)
+            end
+        
+        -- Terminal mouse click
+        elseif not isMonitor and enableMouse and event == "mouse_click" then
+            local button = eventData[2]
+            local mouseX = eventData[3]
+            local mouseY = eventData[4]
+            
+            processClick(mouseX, mouseY)
+        
+        -- Keyboard navigation (q to quit)
+        elseif event == "key" then
+            local key = eventData[2]
+            if key == keys.q then
+                return
             end
         end
     end
 end
 
 ----------------------------------------------------------------------------
--- UNIFIED MENU SYSTEM (ENHANCED)
+-- MENU SYSTEM - CORE HELPERS
 ----------------------------------------------------------------------------
+local MenuRenderer = {}
 
--- Main menu function with all features
+function MenuRenderer.calculateDimensions(disp, items, title, message)
+    local w, h = disp.getSize()
+    local menuWidth = math.min(40, w - 4)
+    local menuHeight = math.min(#items + 4, h - 2)
+    local startX = math.floor((w - menuWidth) / 2) + 1
+    local startY = math.floor((h - menuHeight) / 2) + 1
+    
+    return menuWidth, menuHeight, startX, startY
+end
+
+function MenuRenderer.drawBox(disp, x, y, width, height)
+    -- Top border
+    disp.setCursorPos(x, y)
+    disp.write("+" .. string.rep("-", width - 2) .. "+")
+    
+    -- Sides
+    for i = 1, height - 2 do
+        disp.setCursorPos(x, y + i)
+        disp.write("|" .. string.rep(" ", width - 2) .. "|")
+    end
+    
+    -- Bottom border
+    disp.setCursorPos(x, y + height - 1)
+    disp.write("+" .. string.rep("-", width - 2) .. "+")
+end
+
+function MenuRenderer.drawTitle(disp, title, startX, startY, menuWidth, titleColor)
+    if title then
+        disp.setCursorPos(startX + 2, startY + 1)
+        disp.setTextColor(titleColor)
+        disp.write(string.sub(title, 1, menuWidth - 4))
+        disp.setTextColor(colors.white)
+    end
+end
+
+function MenuRenderer.drawMessage(disp, message, startX, startY, menuWidth)
+    if message then
+        disp.setCursorPos(startX + 2, startY + 2)
+        disp.setTextColor(colors.lightGray)
+        disp.write(string.sub(message, 1, menuWidth - 4))
+        disp.setTextColor(colors.white)
+    end
+end
+
+function MenuRenderer.drawItems(disp, items, selected, startX, startY, menuWidth, menuHeight, offset, selectedColor)
+    local messageOffset = 0
+    local maxVisible = menuHeight - 4
+    
+    for i = 1, math.min(#items, maxVisible) do
+        local idx = i + offset
+        if idx <= #items then
+            local item = items[idx]
+            local itemText = type(item) == "table" and item.name or tostring(item)
+            local cy = startY + 2 + messageOffset + i
+            
+            disp.setCursorPos(startX + 2, cy)
+            
+            if idx == selected then
+                disp.setTextColor(selectedColor)
+                disp.write("> " .. string.sub(itemText, 1, menuWidth - 6))
+            else
+                disp.setTextColor(colors.white)
+                disp.write("  " .. string.sub(itemText, 1, menuWidth - 6))
+            end
+        end
+    end
+    
+    disp.setTextColor(colors.white)
+end
+
+----------------------------------------------------------------------------
+-- MENU SYSTEM - MAIN FUNCTION
+----------------------------------------------------------------------------
 function utils.menu(options)
-    -- Parse options
-    local title = options.title or "Menu"
-    local items = options.items or options
-    local message = options.message or "Use arrow keys to navigate"
-    local titleColor = options.titleColor or colors.blue
-    local selectedColor = options.selectedColor or colors.lime
-    local selectedTextColor = options.selectedTextColor or colors.black
-    local allowQuit = options.allowQuit ~= false  -- default true
-    local numbered = options.numbered ~= false    -- default true
+    local disp = options.display or term
+    local items = options.items or {}
+    local title = options.title
+    local message = options.message
     local returnIndex = options.returnIndex or false
+    local allowQuit = options.allowQuit or false
+    local titleColor = options.titleColor or colors.yellow
+    local selectedColor = options.selectedColor or colors.lime
+    local immediateExecute = options.immediateExecute or false
     
-    -- NEW OPTIONS
-    local display = options.display or term  -- Support for monitors
-    local immediateExecute = options.immediateExecute or false  -- Execute on select (no enter)
-    local enableTouch = options.enableTouch ~= false  -- default true for monitors
-    local enableMouse = options.enableMouse ~= false  -- default true for terminals
+    -- Interactive options
+    local enableTouch = options.enableTouch or false
+    local enableMouse = options.enableMouse or false
     
-    -- Determine if we're using a monitor or terminal
-    local isMonitor = display ~= term
-    local monitorSide = isMonitor and peripheral.getName(display) or nil
+    -- Device detection
+    local isMonitor = disp ~= term
+    local monitorSide = isMonitor and peripheral.getName(disp) or nil
     
+    -- Menu state
     local selected = 1
-    local termWidth, termHeight = display.getSize()
-    local headerLines = 1  -- title only
-    local footerLines = 1  -- separator
-    local instructionLines = allowQuit and 2 or 1
-    local availableLines = termHeight - headerLines - footerLines - instructionLines
-    local firstVisible = 1
+    local offset = 0
     
-    -- Store clickable regions for touch/mouse support
-    local clickableRegions = {}
+    -- Calculate menu dimensions
+    local menuWidth, menuHeight, startX, startY = MenuRenderer.calculateDimensions(disp, items, title, message)
+    local maxVisible = menuHeight - 4
     
-    local function drawMenu()
-        display.setBackgroundColor(colors.black)
-        display.clear()
-        display.setCursorPos(1, 1)
-        clickableRegions = {}
-        
-        -- Title bar
-        display.setBackgroundColor(titleColor)
-        display.setTextColor(colors.white)
-        display.clearLine()
-        display.write(title)
-        display.setBackgroundColor(colors.black)
-        
-        -- Calculate visible range
-        if selected < firstVisible then
-            firstVisible = selected
-        elseif selected > firstVisible + availableLines - 1 then
-            firstVisible = selected - availableLines + 1
-        end
-        
-        -- Draw menu items
-        local currentLine = headerLines + 1
-        for i = firstVisible, math.min(firstVisible + availableLines - 1, #items) do
-            display.setCursorPos(1, currentLine)
-            
-            local item = items[i]
-            local displayText = ""
-            
-            -- Handle both string items and table items
-            if type(item) == "table" then
-                displayText = item.name or item.text or item[1] or tostring(item)
-            else
-                displayText = tostring(item)
-            end
-            
-            -- Add numbering if enabled
-            if numbered then
-                displayText = i .. ". " .. displayText
-            end
-            
-            -- Store clickable region
-            table.insert(clickableRegions, {
-                index = i,
-                y = currentLine,
-                x = 1,
-                width = termWidth,
-                height = 1
-            })
-            
-            -- Highlight selected item
-            if i == selected then
-                display.setBackgroundColor(selectedColor)
-                display.setTextColor(selectedTextColor)
-                display.clearLine()
-                display.write("> " .. displayText)
-                display.setBackgroundColor(colors.black)
-                display.setTextColor(colors.white)
-            else
-                display.setTextColor(colors.white)
-                display.write("  " .. displayText)
-            end
-            
-            currentLine = currentLine + 1
-        end
-        
-        -- Footer separator
-        display.setCursorPos(1, termHeight - instructionLines)
-        display.setTextColor(colors.gray)
-        display.write(string.rep("-", termWidth))
-        
-        -- Instructions
-        display.setCursorPos(1, termHeight - instructionLines + 1)
-        display.setTextColor(colors.lightGray)
-        local inputMethod = ""
-        if isMonitor and enableTouch then
-            inputMethod = "Touch to select"
-        elseif not isMonitor and enableMouse then
-            inputMethod = "Click or arrow keys"
-        else
-            inputMethod = message
-        end
-        display.write(inputMethod)
-        
-        if allowQuit then
-            display.setCursorPos(1, termHeight)
-            display.write("Press 'q' to quit")
-        end
-        
-        display.setTextColor(colors.white)
-        display.setBackgroundColor(colors.black)
-    end
+    -- Store clickable regions
+    local clickableItems = {}
     
-    local function handleSelection()
-        if immediateExecute then
-            -- Execute immediately without clearing screen
-            local item = items[selected]
-            if type(item) == "table" then
-                if item.onSelect then
-                    item.onSelect(item, selected)
-                    drawMenu()  -- Redraw after execution
-                    return "continue"
-                elseif item.action then
-                    item.action(item, selected)
-                    drawMenu()  -- Redraw after execution
-                    return "continue"
+    -- Render function
+    local function render()
+        disp.clear()
+        clickableItems = {}
+        
+        MenuRenderer.drawBox(disp, startX, startY, menuWidth, menuHeight)
+        MenuRenderer.drawTitle(disp, title, startX, startY, menuWidth, titleColor)
+        MenuRenderer.drawMessage(disp, message, startX, startY, menuWidth)
+        
+        -- Draw items and store clickable regions
+        local messageOffset = 0
+        
+        for i = 1, math.min(#items, maxVisible) do
+            local idx = i + offset
+            if idx <= #items then
+                local item = items[idx]
+                local itemText = type(item) == "table" and item.name or tostring(item)
+                local cy = startY + 2 + messageOffset + i
+                
+                disp.setCursorPos(startX + 2, cy)
+                
+                if idx == selected then
+                    disp.setTextColor(selectedColor)
+                    disp.write("> " .. string.sub(itemText, 1, menuWidth - 6))
+                else
+                    disp.setTextColor(colors.white)
+                    disp.write("  " .. string.sub(itemText, 1, menuWidth - 6))
+                end
+                
+                -- Store clickable region
+                if enableTouch or enableMouse then
+                    table.insert(clickableItems, {
+                        index = idx,
+                        x = startX,
+                        y = cy,
+                        width = menuWidth,
+                        height = 1
+                    })
                 end
             end
         end
         
-        -- Normal selection return
-        display.clear()
-        display.setCursorPos(1, 1)
-        
-        if returnIndex then
-            return "return", selected
-        else
-            return "return", items[selected], selected
-        end
+        disp.setTextColor(colors.white)
     end
     
-    local function processClick(x, y)
-        -- Check if click is on a menu item
-        for _, region in ipairs(clickableRegions) do
-            if y == region.y and x >= region.x and x < region.x + region.width then
+    -- Handle click events
+    local function processClick(clickX, clickY)
+        for _, region in ipairs(clickableItems) do
+            if clickX >= region.x and clickX < region.x + region.width and clickY == region.y then
                 selected = region.index
-                drawMenu()
                 
-                -- If immediate execute is enabled, execute now
                 if immediateExecute then
-                    return handleSelection()
+                    local item = items[selected]
+                    if type(item) == "table" and item.action then
+                        disp.clear()
+                        disp.setCursorPos(1, 1)
+                        item.action()
+                    end
                 end
                 
-                return "selected"
+                if returnIndex then
+                    return items[selected], selected
+                else
+                    return items[selected]
+                end
             end
         end
-        return "continue"
+        return nil
     end
     
-    drawMenu()
-    
-    -- Event loop with touch/mouse support
+    -- Main event loop
     while true do
+        render()
+        
         local eventData = {os.pullEvent()}
         local event = eventData[1]
         
@@ -310,48 +520,57 @@ function utils.menu(options)
         if event == "key" then
             local key = eventData[2]
             
-            if key == keys.up then
-                selected = selected > 1 and selected - 1 or #items
-                drawMenu()
-                
-            elseif key == keys.down then
-                selected = selected < #items and selected + 1 or 1
-                drawMenu()
-                
+            if key == keys.up and selected > 1 then
+                selected = selected - 1
+                if selected < offset + 1 then
+                    offset = math.max(0, offset - 1)
+                end
+            elseif key == keys.down and selected < #items then
+                selected = selected + 1
+                if selected > offset + maxVisible then
+                    offset = offset + 1
+                end
             elseif key == keys.enter then
-                local status, result1, result2 = handleSelection()
-                if status == "return" then
-                    return result1, result2
+                if immediateExecute then
+                    local item = items[selected]
+                    if type(item) == "table" and item.action then
+                        disp.clear()
+                        disp.setCursorPos(1, 1)
+                        item.action()
+                    end
                 end
                 
-            elseif allowQuit and key == keys.q then
-                display.clear()
-                display.setCursorPos(1, 1)
-                return nil, nil
+                if returnIndex then
+                    return items[selected], selected
+                else
+                    return items[selected]
+                end
+            elseif key == keys.q and allowQuit then
+                return nil
             end
         
-        -- Monitor touch support
+        -- Monitor touch
         elseif isMonitor and enableTouch and event == "monitor_touch" then
             local side = eventData[2]
-            local x = eventData[3]
-            local y = eventData[4]
+            local touchX = eventData[3]
+            local touchY = eventData[4]
             
             if side == monitorSide then
-                local status, result1, result2 = processClick(x, y)
-                if status == "return" then
-                    return result1, result2
+                local result, index = processClick(touchX, touchY)
+                if result then
+                    return result, index
                 end
             end
         
-        -- Terminal mouse click support
+        -- Terminal mouse click
         elseif not isMonitor and enableMouse and event == "mouse_click" then
             local button = eventData[2]
-            local x = eventData[3]
-            local y = eventData[4]
+            local mouseX = eventData[3]
+            local mouseY = eventData[4]
             
-            local status, result1, result2 = processClick(x, y)
-            if status == "return" then
-                return result1, result2
+            local result, index = processClick(mouseX, mouseY)
+            if result then
+                return result, index
             end
         end
     end
@@ -386,15 +605,13 @@ function utils.actionMenu(options)
         })
         
         if not selected then
-            -- User pressed 'q' to quit
             break
         end
         
-        -- Handle actions (only if not immediate execute, since that's handled in menu())
+        -- Handle actions (only if not immediate execute)
         if not options.immediateExecute then
             if type(selected) == "table" then
                 if selected.submenu then
-                    -- Recursive submenu
                     utils.actionMenu({
                         title = selected.submenu.title or selected.name or "Submenu",
                         items = selected.submenu.items or selected.submenu,
@@ -405,28 +622,28 @@ function utils.actionMenu(options)
                         enableMouse = options.enableMouse
                     })
                 elseif selected.action then
-                    -- Execute action
                     local disp = options.display or term
                     disp.clear()
                     disp.setCursorPos(1, 1)
                     local result = selected.action()
                     
-                    -- If action returns false, exit menu
                     if result == false then
                         break
                     end
                     
-                    -- Wait for user to continue
                     if options.waitAfterAction ~= false then
-                        print("\nPress any key to continue...")
-                        os.pullEvent("key")
+                        print("\nPress R to return...")
+                        while true do
+                            local event, key = os.pullEvent("key")
+                            if key == keys.r then
+                                break
+                            end
+                        end
                     end
                 else
-                    -- No action defined, just return the selection
                     break
                 end
             else
-                -- Simple string selection, exit menu
                 break
             end
         end
@@ -434,78 +651,21 @@ function utils.actionMenu(options)
 end
 
 ----------------------------------------------------------------------------
--- EVENT HANDLING - TOUCH HANDLER
+-- TABLE UTILITIES
 ----------------------------------------------------------------------------
-function utils.createTouchHandler(disp, elements)
-    elements = elements or {}
-    local isTerminal = (disp == term)
-    
-    local handler = {
-        elements = elements,
-        disp = disp
-    }
-    
-    function handler.register(id, x, y, width, height, callback)
-        table.insert(handler.elements, {
-            id = id,
-            x = x,
-            y = y,
-            width = width,
-            height = height,
-            callback = callback
-        })
-        return handler
-    end
-    
-    function handler.processEvent(x, y)
-        for _, element in ipairs(handler.elements) do
-            if x >= element.x and x < element.x + element.width and
-               y >= element.y and y < element.y + element.height then
-                if element.callback then
-                    return element.callback(element, x, y)
-                end
-                return element.id
-            end
-        end
-        return nil
-    end
-    
-    function handler.listen()
-        while true do
-            if isTerminal then
-                local event, button, x, y = os.pullEvent("mouse_click")
-                handler.processEvent(x, y)
-            else
-                local event, side, x, y = os.pullEvent("monitor_touch")
-                if side == peripheral.getName(disp) then
-                    handler.processEvent(x, y)
-                end
-            end
+function utils.sortTable(dataToSort, column, ascending)
+    if not dataToSort or #dataToSort == 0 then return dataToSort end
+    TableRenderer.sortData(dataToSort, column, ascending ~= false)
+    return dataToSort
+end
+
+function utils.searchTable(tbl, value)
+    for i, v in ipairs(tbl) do
+        if v == value then
+            return i
         end
     end
-    
-    function handler.listenAsync()
-        parallel.waitForAny(
-            function() handler.listen() end,
-            function() while true do sleep(600) end end
-        )
-    end
-    
-    function handler.clear()
-        handler.elements = {}
-        return handler
-    end
-    
-    function handler.remove(id)
-        for i = #handler.elements, 1, -1 do
-            if handler.elements[i].id == id then
-                table.remove(handler.elements, i)
-            end
-        end
-        return handler
-    end
-    
-    return handler
+    return nil
 end
 
 ----------------------------------------------------------------------------

@@ -1,4 +1,4 @@
--- menu_examples_enhanced.lua
+-- menu_examples.lua
 -- Demonstrates enhanced menu features: immediate execution, monitor support, touch/mouse
 
 local utils = require('modules/utils')
@@ -9,11 +9,10 @@ local utils = require('modules/utils')
 function example1_immediateExecution()
     print("Example 1: Immediate Execution")
     print("-------------------------------\n")
-    print("Click or arrow to an item - it executes immediately!")
+    print("Select an item - it executes immediately!")
     print("No need to press Enter.\n")
     
     local counter = 0
-    local display = "Counter: 0"
     
     utils.actionMenu({
         title = "Immediate Execution Demo",
@@ -21,34 +20,37 @@ function example1_immediateExecution()
         items = {
             {
                 name = "Increment Counter",
-                onSelect = function(item)
+                action = function()
                     counter = counter + 1
-                    display = "Counter: " .. counter
                     print("Counter increased to " .. counter)
                 end
             },
             {
                 name = "Decrement Counter",
-                onSelect = function(item)
+                action = function()
                     counter = counter - 1
-                    display = "Counter: " .. counter
                     print("Counter decreased to " .. counter)
                 end
             },
             {
                 name = "Reset Counter",
-                onSelect = function(item)
+                action = function()
                     counter = 0
-                    display = "Counter: 0"
                     print("Counter reset!")
                 end
             },
             {
                 name = "Show Current Value",
-                onSelect = function(item)
+                action = function()
                     print("\n=== Current State ===")
-                    print(display)
+                    print("Counter: " .. counter)
                     print("====================\n")
+                end
+            },
+            {
+                name = "Exit",
+                action = function()
+                    return false  -- Exit menu
                 end
             }
         },
@@ -82,13 +84,13 @@ function example2_monitorMenu()
         function()
             utils.actionMenu({
                 title = "Monitor Control Panel",
-                display = monitor,  -- KEY FEATURE: Display on monitor
-                enableTouch = true,  -- KEY FEATURE: Touch support
+                display = monitor,      -- KEY FEATURE: Display on monitor
+                enableTouch = true,     -- KEY FEATURE: Touch support
                 immediateExecute = true,
                 items = {
                     {
                         name = "Light Mode",
-                        onSelect = function()
+                        action = function()
                             monitor.setBackgroundColor(colors.white)
                             monitor.setTextColor(colors.black)
                             monitor.clear()
@@ -99,7 +101,7 @@ function example2_monitorMenu()
                     },
                     {
                         name = "Dark Mode",
-                        onSelect = function()
+                        action = function()
                             monitor.setBackgroundColor(colors.black)
                             monitor.setTextColor(colors.white)
                             monitor.clear()
@@ -110,7 +112,7 @@ function example2_monitorMenu()
                     },
                     {
                         name = "Show Time",
-                        onSelect = function()
+                        action = function()
                             monitor.clear()
                             monitor.setCursorPos(1, 1)
                             monitor.write("Current time: " .. textutils.formatTime(os.time(), false))
@@ -119,10 +121,16 @@ function example2_monitorMenu()
                     },
                     {
                         name = "Clear Monitor",
-                        onSelect = function()
+                        action = function()
                             monitor.setBackgroundColor(colors.black)
                             monitor.clear()
                             sleep(0.5)
+                        end
+                    },
+                    {
+                        name = "Exit",
+                        action = function()
+                            return false
                         end
                     }
                 },
@@ -149,8 +157,6 @@ function example3_mouseClickMenu()
     print("You can click on items with your mouse!")
     print("Or use arrow keys - both work!\n")
     
-    local selectedColor = colors.white
-    
     utils.actionMenu({
         title = "Color Picker (Click or Keys)",
         enableMouse = true,  -- KEY FEATURE: Mouse click support
@@ -158,8 +164,7 @@ function example3_mouseClickMenu()
         items = {
             {
                 name = "Red",
-                onSelect = function()
-                    selectedColor = colors.red
+                action = function()
                     term.setBackgroundColor(colors.red)
                     term.clear()
                     term.setCursorPos(1, 1)
@@ -171,8 +176,7 @@ function example3_mouseClickMenu()
             },
             {
                 name = "Green",
-                onSelect = function()
-                    selectedColor = colors.green
+                action = function()
                     term.setBackgroundColor(colors.green)
                     term.clear()
                     term.setCursorPos(1, 1)
@@ -184,8 +188,7 @@ function example3_mouseClickMenu()
             },
             {
                 name = "Blue",
-                onSelect = function()
-                    selectedColor = colors.blue
+                action = function()
                     term.setBackgroundColor(colors.blue)
                     term.clear()
                     term.setCursorPos(1, 1)
@@ -197,8 +200,7 @@ function example3_mouseClickMenu()
             },
             {
                 name = "Yellow",
-                onSelect = function()
-                    selectedColor = colors.yellow
+                action = function()
                     term.setBackgroundColor(colors.yellow)
                     term.clear()
                     term.setCursorPos(1, 1)
@@ -211,76 +213,8 @@ function example3_mouseClickMenu()
             },
             {
                 name = "Exit",
-                onSelect = function()
+                action = function()
                     return false  -- Exit menu
-                end
-            }
-        }
-    })
-    
-    term.setBackgroundColor(colors.black)
-    term.setTextColor(colors.white)
-end
-
-----------------------------------------------------------------------------
--- EXAMPLE 4: Interactive Dashboard (Immediate + Mouse)
-----------------------------------------------------------------------------
-function example4_interactiveDashboard()
-    print("Example 4: Interactive Dashboard")
-    print("---------------------------------\n")
-    
-    local stats = {
-        visitors = 0,
-        sales = 0,
-        alerts = 0
-    }
-    
-    utils.actionMenu({
-        title = "Dashboard Control",
-        immediateExecute = true,
-        enableMouse = true,
-        items = {
-            {
-                name = "View Stats",
-                onSelect = function()
-                    term.clear()
-                    term.setCursorPos(1, 1)
-                    print("=== Current Statistics ===")
-                    print("Visitors: " .. stats.visitors)
-                    print("Sales: $" .. stats.sales)
-                    print("Alerts: " .. stats.alerts)
-                    print("========================\n")
-                    sleep(2)
-                end
-            },
-            {
-                name = "+ Add Visitor",
-                onSelect = function()
-                    stats.visitors = stats.visitors + 1
-                    print("Visitor added! Total: " .. stats.visitors)
-                end
-            },
-            {
-                name = "+ Add Sale ($10)",
-                onSelect = function()
-                    stats.sales = stats.sales + 10
-                    print("Sale recorded! Total: $" .. stats.sales)
-                end
-            },
-            {
-                name = "+ Trigger Alert",
-                onSelect = function()
-                    stats.alerts = stats.alerts + 1
-                    print("Alert logged! Total: " .. stats.alerts)
-                end
-            },
-            {
-                name = "Reset All",
-                onSelect = function()
-                    stats.visitors = 0
-                    stats.sales = 0
-                    stats.alerts = 0
-                    print("All stats reset!")
                 end
             }
         },
@@ -290,59 +224,117 @@ function example4_interactiveDashboard()
 end
 
 ----------------------------------------------------------------------------
+-- EXAMPLE 4: Interactive Dashboard
+----------------------------------------------------------------------------
+function example4_interactiveDashboard()
+    print("Example 4: Interactive Dashboard")
+    print("---------------------------------\n")
+    
+    local stats = {
+        energy = 5000,
+        items = 124,
+        activeDevices = 3
+    }
+    
+    utils.actionMenu({
+        title = "Control Dashboard",
+        immediateExecute = true,
+        enableMouse = true,
+        items = {
+            {
+                name = "View Energy: " .. stats.energy .. " RF",
+                action = function()
+                    print("Energy Status: " .. stats.energy .. " RF")
+                    print("Capacity: 10000 RF")
+                    print("Usage: " .. string.format("%.1f%%", (stats.energy / 10000) * 100))
+                end
+            },
+            {
+                name = "View Inventory: " .. stats.items .. " items",
+                action = function()
+                    print("Total Items: " .. stats.items)
+                    print("Storage Slots: 256")
+                    print("Free Slots: " .. (256 - stats.items))
+                end
+            },
+            {
+                name = "Device Status: " .. stats.activeDevices .. " active",
+                action = function()
+                    print("Active Devices: " .. stats.activeDevices)
+                    print("Connected Peripherals:")
+                    local periphs = peripheral.getNames()
+                    for _, p in ipairs(periphs) do
+                        print("- " .. p .. " (" .. peripheral.getType(p) .. ")")
+                    end
+                end
+            },
+            {
+                name = "Refresh Stats",
+                action = function()
+                    -- Simulate stats update
+                    stats.energy = math.random(3000, 8000)
+                    stats.items = math.random(80, 200)
+                    stats.activeDevices = #peripheral.getNames()
+                    print("Stats refreshed!")
+                end
+            },
+            {
+                name = "Exit",
+                action = function()
+                    return false
+                end
+            }
+        }
+    })
+end
+
+----------------------------------------------------------------------------
 -- EXAMPLE 5: Multi-Monitor Setup
 ----------------------------------------------------------------------------
 function example5_multiMonitor()
-    print("Example 5: Multi-Monitor Menu")
-    print("------------------------------\n")
+    print("Example 5: Multi-Monitor Setup")
+    print("-------------------------------\n")
     
     local monitors = {peripheral.find("monitor")}
     
     if #monitors == 0 then
         print("No monitors found! Please attach at least one monitor.")
-        print("Press any key to skip...")
+        print("Press any key to skip this example...")
         os.pullEvent("key")
         return
     end
     
     print("Found " .. #monitors .. " monitor(s)")
-    print("Select which monitor to use:\n")
+    print("Select a monitor to test:\n")
     
-    -- Build monitor selection menu
     local monitorItems = {}
     for i, mon in ipairs(monitors) do
         table.insert(monitorItems, {
             name = "Monitor " .. i .. " (" .. peripheral.getName(mon) .. ")",
-            monitor = mon
+            action = function()
+                return mon
+            end
         })
     end
-    table.insert(monitorItems, "Use Terminal Instead")
     
-    local choice = utils.quickMenu("Select Display", monitorItems)
+    local selectedMonitor = utils.quickMenu("Choose Monitor", monitorItems)
     
-    if not choice or choice > #monitors then
-        print("Using terminal...")
-        return
-    end
+    if not selectedMonitor then return end
     
-    local selectedMonitor = monitors[choice]
-    
-    print("Menu will appear on Monitor " .. choice)
-    print("Touch the monitor to interact!")
-    print("Press any key here to stop...\n")
+    print("\nRunning test menu on selected monitor...")
+    print("Press any key here to exit...")
     
     parallel.waitForAny(
         function()
             utils.actionMenu({
-                title = "Monitor " .. choice .. " Menu",
+                title = "Monitor Test Menu",
                 display = selectedMonitor,
                 enableTouch = true,
                 immediateExecute = true,
                 items = {
                     {
-                        name = "Display Test Pattern",
-                        onSelect = function()
-                            selectedMonitor.clear()
+                        name = "Rainbow Test",
+                        action = function()
                             local w, h = selectedMonitor.getSize()
                             for y = 1, h do
                                 selectedMonitor.setCursorPos(1, y)
@@ -355,7 +347,7 @@ function example5_multiMonitor()
                     },
                     {
                         name = "Show Monitor Info",
-                        onSelect = function()
+                        action = function()
                             local w, h = selectedMonitor.getSize()
                             selectedMonitor.clear()
                             selectedMonitor.setCursorPos(1, 1)
@@ -367,9 +359,15 @@ function example5_multiMonitor()
                     },
                     {
                         name = "Clear Screen",
-                        onSelect = function()
+                        action = function()
                             selectedMonitor.setBackgroundColor(colors.black)
                             selectedMonitor.clear()
+                        end
+                    },
+                    {
+                        name = "Exit",
+                        action = function()
+                            return false
                         end
                     }
                 }
@@ -390,10 +388,12 @@ function example6_comparisonDemo()
     print("Example 6: Traditional vs Immediate Execution")
     print("----------------------------------------------\n")
     
-    local mode = utils.quickMenu("Choose Mode", {
+    local modeNames = {
         "Traditional (Select then Enter)",
-        "Immediate (Click to Execute)"
-    })
+        "Immediate (Select to Execute)"
+    }
+    
+    local mode = utils.quickMenu("Choose Mode", modeNames)
     
     if not mode then return end
     
@@ -403,40 +403,47 @@ function example6_comparisonDemo()
         notifications = true
     }
     
+    local items = {
+        {
+            name = "Volume: " .. settings.volume .. "%",
+            action = function(item)
+                settings.volume = (settings.volume + 10) % 110
+                item.name = "Volume: " .. settings.volume .. "%"
+                print("Volume set to " .. settings.volume .. "%")
+            end
+        },
+        {
+            name = "Brightness: " .. settings.brightness .. "%",
+            action = function(item)
+                settings.brightness = (settings.brightness + 25) % 125
+                item.name = "Brightness: " .. settings.brightness .. "%"
+                print("Brightness set to " .. settings.brightness .. "%")
+            end
+        },
+        {
+            name = "Notifications: " .. (settings.notifications and "ON" or "OFF"),
+            action = function(item)
+                settings.notifications = not settings.notifications
+                item.name = "Notifications: " .. (settings.notifications and "ON" or "OFF")
+                print("Notifications " .. (settings.notifications and "enabled" or "disabled"))
+            end
+        },
+        {
+            name = "Exit",
+            action = function()
+                return false
+            end
+        }
+    }
+    
     local menuConfig = {
         title = mode == 1 and "Settings (Traditional)" or "Settings (Immediate)",
         immediateExecute = (mode == 2),
         enableMouse = true,
-        items = {
-            {
-                name = "Volume: " .. settings.volume .. "%",
-                onSelect = function(item)
-                    settings.volume = (settings.volume + 10) % 110
-                    item.name = "Volume: " .. settings.volume .. "%"
-                    print("Volume set to " .. settings.volume .. "%")
-                end
-            },
-            {
-                name = "Brightness: " .. settings.brightness .. "%",
-                onSelect = function(item)
-                    settings.brightness = (settings.brightness + 25) % 125
-                    item.name = "Brightness: " .. settings.brightness .. "%"
-                    print("Brightness set to " .. settings.brightness .. "%")
-                end
-            },
-            {
-                name = "Notifications: " .. (settings.notifications and "ON" or "OFF"),
-                onSelect = function(item)
-                    settings.notifications = not settings.notifications
-                    item.name = "Notifications: " .. (settings.notifications and "ON" or "OFF")
-                    print("Notifications " .. (settings.notifications and "enabled" or "disabled"))
-                end
-            }
-        }
+        items = items
     }
     
     if mode == 1 then
-        -- Traditional mode: requires Enter key
         menuConfig.waitAfterAction = true
     end
     
@@ -444,7 +451,7 @@ function example6_comparisonDemo()
 end
 
 ----------------------------------------------------------------------------
--- EXAMPLE 7: Real-time Monitor (Immediate + Touch)
+-- EXAMPLE 7: Real-time System Monitor
 ----------------------------------------------------------------------------
 function example7_realtimeMonitor()
     print("Example 7: Real-time System Monitor")
@@ -457,7 +464,7 @@ function example7_realtimeMonitor()
         items = {
             {
                 name = "Check Fuel Level",
-                onSelect = function()
+                action = function()
                     if turtle then
                         local fuel = turtle.getFuelLevel()
                         print("Fuel: " .. (fuel == "unlimited" and "Unlimited" or fuel))
@@ -468,21 +475,21 @@ function example7_realtimeMonitor()
             },
             {
                 name = "Check Time",
-                onSelect = function()
+                action = function()
                     print("Time: " .. textutils.formatTime(os.time(), false))
                     print("Day: " .. os.day())
                 end
             },
             {
                 name = "Check Disk Space",
-                onSelect = function()
+                action = function()
                     local free = fs.getFreeSpace("/")
                     print("Free space: " .. math.floor(free / 1024) .. " KB")
                 end
             },
             {
                 name = "List Peripherals",
-                onSelect = function()
+                action = function()
                     local periphs = peripheral.getNames()
                     print("Connected peripherals:")
                     for _, p in ipairs(periphs) do
@@ -492,7 +499,7 @@ function example7_realtimeMonitor()
             },
             {
                 name = "Refresh All",
-                onSelect = function()
+                action = function()
                     print("=== System Status ===")
                     print("Time: " .. textutils.formatTime(os.time(), false))
                     print("Day: " .. os.day())
@@ -503,10 +510,81 @@ function example7_realtimeMonitor()
                     print("====================")
                     sleep(2)
                 end
+            },
+            {
+                name = "Exit",
+                action = function()
+                    return false
+                end
             }
         },
         titleColor = colors.green,
         selectedColor = colors.lime
+    })
+end
+
+----------------------------------------------------------------------------
+-- EXAMPLE 8: Submenu Navigation
+----------------------------------------------------------------------------
+function example8_submenus()
+    print("Example 8: Submenu Navigation")
+    print("------------------------------\n")
+    
+    utils.actionMenu({
+        title = "Main Menu",
+        enableMouse = true,
+        items = {
+            {
+                name = "File Operations",
+                submenu = {
+                    title = "File Menu",
+                    items = {
+                        {
+                            name = "List Files",
+                            action = function()
+                                local files = fs.list("/")
+                                print("Files in root:")
+                                for _, f in ipairs(files) do
+                                    print("- " .. f)
+                                end
+                            end
+                        },
+                        {
+                            name = "Show Disk Space",
+                            action = function()
+                                print("Free: " .. math.floor(fs.getFreeSpace("/") / 1024) .. " KB")
+                            end
+                        }
+                    }
+                }
+            },
+            {
+                name = "System Info",
+                submenu = {
+                    title = "System Menu",
+                    items = {
+                        {
+                            name = "Computer ID",
+                            action = function()
+                                print("ID: " .. os.getComputerID())
+                            end
+                        },
+                        {
+                            name = "Computer Label",
+                            action = function()
+                                print("Label: " .. (os.getComputerLabel() or "None"))
+                            end
+                        }
+                    }
+                }
+            },
+            {
+                name = "Exit",
+                action = function()
+                    return false
+                end
+            }
+        }
     })
 end
 
@@ -528,6 +606,7 @@ local examples = {
     {name = "Multi-Monitor Setup", func = example5_multiMonitor},
     {name = "Traditional vs Immediate", func = example6_comparisonDemo},
     {name = "Real-time Monitor", func = example7_realtimeMonitor},
+    {name = "Submenu Navigation", func = example8_submenus}
 }
 
 while true do
@@ -554,8 +633,9 @@ end
 term.clear()
 term.setCursorPos(1, 1)
 print("Thanks for exploring the enhanced menu system!")
-print("\nNew Features:")
+print("\nKey Features:")
 print("- Immediate execution (no Enter key needed)")
 print("- Monitor display support")
 print("- Touch support for monitors")
 print("- Mouse click support for terminals")
+print("- Submenu navigation")
